@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>City Retail Tycoon 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #1a1a2e;
+  color: #fff; font-family: 'Outfit', sans-serif; user-select: none; -webkit-user-select: none;
+}
+#canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+
+#hud {
+  position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 50; pointer-events: none;
+}
+.hud-card {
+  background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px;
+  padding: 8px 14px; display: flex; align-items: center; gap: 8px;
+}
+.hud-icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.hud-card.money .hud-icon { background: linear-gradient(135deg, #6ee7b7, #059669); color: #022c22; }
+.hud-card.cust .hud-icon { background: linear-gradient(135deg, #a78bfa, #7c3aed); color: #2e1065; }
+.hud-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1.2px; color: #94a3b8; font-weight: 600; }
+.hud-value { font-family: 'Bricolage Grotesque', serif; font-size: 16px; font-weight: 800; line-height: 1; margin-top: 1px; }
+
+#notif-area { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+.notif {
+  background: rgba(15, 23, 42, 0.95); border-left: 4px solid #6ee7b7; padding: 8px 16px;
+  border-radius: 6px; font-size: 12px; animation: slideIn 0.3s ease, slideOut 0.3s ease 2.5s forwards;
+}
+.notif.bad { border-color: #fb7185; }
+@keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideOut { to { opacity: 0; transform: translateY(-10px); } }
+
+#move-controls {
+  position: fixed; bottom: 25px; left: 20px; z-index: 50;
+  width: 150px; height: 150px;
+}
+.wasd-btn {
+  position: absolute; width: 50px; height: 50px; border-radius: 10px;
+  background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.2);
+  color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(8px); font-weight: 700;
+}
+.wasd-btn.active { background: rgba(110, 231, 183, 0.7); border-color: #6ee7b7; color: #000; }
+#w-btn { top: 0; left: 50px; } 
+#a-btn { top: 50px; left: 0; } 
+#s-btn { top: 100px; left: 50px; } 
+#d-btn { top: 50px; left: 100px; } 
+
+#cam-zone {
+  position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; z-index: 40;
+}
+
+#action-buttons {
+  position: fixed; bottom: 30px; right: 30px; z-index: 50; display: flex; flex-direction: column; gap: 15px; align-items: center;
+}
+.act-btn {
+  width: 60px; height: 60px; border-radius: 50%; background: rgba(255,255,255,0.15);
+  border: 2px solid rgba(255,255,255,0.3); color: #fff; font-size: 20px;
+  display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px);
+}
+.act-btn.restock {
+  background: rgba(251, 191, 36, 0.9); border-color: #fbbf24; color: #000; 
+  width: 70px; height: 70px; font-size: 14px; font-weight: 800; line-height: 1.2; text-align: center;
+  display: none; 
+}
+.act-btn.restock.active { display: flex; animation: pulse 1.5s infinite; }
+
+.act-btn.redeem {
+  background: rgba(168, 85, 247, 0.9); border-color: #a855f7; color: #fff; 
+  display: none; 
+}
+.act-btn.redeem.active { display: flex; animation: pulse 1.5s infinite; }
+
+@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+#build-menu-btn {
+  position: fixed; top: 15px; left: 15px; z-index: 50; background: rgba(15, 23, 42, 0.85);
+  padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+#shop-menu-btn {
+  position: fixed; top: 60px; left: 15px; z-index: 50; background: rgba(251, 191, 36, 0.85);
+  padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 8px; color: #000;
+}
+
+#home-btn {
+  position: fixed; top: 15px; right: 15px; z-index: 50; background: rgba(59, 130, 246, 0.85);
+  padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 8px; color: #fff;
+}
+#reset-btn {
+  position: fixed; top: 60px; right: 15px; z-index: 50; background: rgba(239, 68, 68, 0.85);
+  padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 8px; color: #fff;
+}
+
+.menu-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 90; display: none; 
+}
+.menu-overlay.active { display: block; }
+
+#build-menu, #shop-menu {
+  position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px); padding: 20px; z-index: 100; transform: translateY(100%); transition: transform 0.3s;
+  border-top-left-radius: 20px; border-top-right-radius: 20px;
+}
+#build-menu.open, #shop-menu.open { transform: translateY(0); }
+#build-menu h2, #shop-menu h2 { font-family: 'Bricolage Grotesque', serif; font-size: 18px; margin-bottom: 12px; color: #6ee7b7; display: flex; justify-content: space-between; align-items: center; }
+#shop-menu h2 { color: #fbbf24; }
+.close-menu-btn {
+  background: rgba(251, 113, 133, 0.9); border: none; color: #fff; width: 30px; height: 30px;
+  border-radius: 8px; font-size: 14px; cursor: pointer;
+}
+.build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; max-height: 40vh; overflow-y: auto; padding-bottom: 20px; }
+.build-item-card {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px;
+  text-align: center; cursor: pointer;
+}
+.build-item-card i { font-size: 20px; margin-bottom: 5px; display: block; color: #fcd34d; }
+.build-item-card .name { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+.build-item-card .price { font-size: 10px; color: #6ee7b7; font-weight: 700; }
+.build-item-card.locked { opacity: 0.4; }
+
+#build-controls {
+  position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: none; gap: 15px; align-items: center;
+}
+#build-controls.active { display: flex; }
+.bc-btn {
+  background: rgba(15, 23, 42, 0.9); border: 2px solid rgba(255,255,255,0.2); color: #fff;
+  padding: 12px 20px; border-radius: 12px; font-weight: 700; font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.bc-btn.confirm { background: rgba(110, 231, 183, 0.9); border-color: #6ee7b7; color: #000; }
+.bc-btn.cancel { background: rgba(251, 113, 133, 0.9); border-color: #fb7185; }
+
+#redeem-dialog {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 150;
+  display: none; align-items: center; justify-content: center; padding: 20px;
+}
+#redeem-dialog.active { display: flex; }
+.redeem-box {
+  background: #1e293b; padding: 30px; border-radius: 20px; max-width: 400px; width: 100%; text-align: center; border: 2px solid #a855f7;
+}
+.redeem-box h2 { color: #a855f7; margin-bottom: 10px; font-family: 'Bricolage Grotesque', serif; }
+.redeem-box .subtitle { color: #ccc; margin-bottom: 20px; font-size: 13px; }
+
+.option-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+.option-card {
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 10px; cursor: pointer; transition: all 0.2s;
+}
+.option-card:hover { background: rgba(168, 85, 247, 0.2); border-color: #a855f7; }
+.option-card i { font-size: 24px; margin-bottom: 8px; display: block; }
+.option-card .opt-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+.option-card .opt-price { font-size: 11px; color: #6ee7b7; font-weight: 700; }
+
+#redeem-result { margin-bottom: 20px; display: none; }
+#code-box { background: #000; padding: 15px; border-radius: 10px; font-family: monospace; font-size: 14px; color: #6ee7b7; margin-bottom: 15px; word-break: break-all; border: 1px dashed #6ee7b7; max-height: 150px; overflow-y: auto; }
+
+.btn-copy-code {
+  background: #6ee7b7; color: #022c22; border: none; padding: 10px 20px;
+  border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; margin-bottom: 15px;
+  display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px;
+}
+.redeem-link { display: block; background: #3b82f6; color: #fff; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-bottom: 15px; }
+.btn-redeem-back { background: rgba(255,255,255,0.1); color: #fff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; width: 100%; }
+
+.overlay {
+  position: fixed; inset: 0; background: rgba(5, 10, 20, 0.95); z-index: 200;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 20px;
+}
+.overlay.hidden { display: none; }
+.overlay h1 {
+  font-family: 'Bricolage Grotesque', serif; font-size: 48px; font-weight: 800; margin-bottom: 10px;
+  background: linear-gradient(135deg, #fcd34d 0%, #0058A3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.overlay p { color: #d1d5db; max-width: 400px; margin-bottom: 30px; line-height: 1.5; font-size: 14px; }
+
+.start-btn {
+  background: linear-gradient(135deg, #fcd34d, #d97706); color: #000; border: none; padding: 12px 30px;
+  border-radius: 10px; font-size: 16px; font-weight: 800; cursor: pointer; font-family: 'Bricolage Grotesque', serif; margin-bottom: 10px;
+}
+.settings-btn {
+  background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 10px 30px;
+  border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+
+#settings-dialog {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 250;
+  display: none; align-items: center; justify-content: center; padding: 20px;
+}
+#settings-dialog.active { display: flex; }
+.settings-box {
+  background: #1e293b; padding: 30px; border-radius: 20px; max-width: 400px; width: 100%; text-align: center; border: 2px solid #3b82f6;
+}
+.settings-box h2 { color: #3b82f6; margin-bottom: 20px; font-family: 'Bricolage Grotesque', serif; }
+.quality-options { display: flex; gap: 10px; margin-bottom: 20px; }
+.quality-btn {
+  flex: 1; background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.1); color: #fff;
+  padding: 15px 10px; border-radius: 10px; cursor: pointer; font-weight: 700;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.quality-btn i { font-size: 20px; }
+.quality-btn.active { background: rgba(59, 130, 246, 0.2); border-color: #3b82f6; }
+.btn-save-settings {
+  background: #3b82f6; color: #fff; border: none; padding: 12px 20px; border-radius: 10px; font-weight: 700; cursor: pointer; width: 100%;
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <div class="hud-card money">
+    <div class="hud-icon"><i class="fa-solid fa-coins"></i></div>
+    <div>
+      <div class="hud-label">Uang</div>
+      <div class="hud-value" id="hud-money">$1,000</div>
+    </div>
+  </div>
+  <div class="hud-card cust">
+    <div class="hud-icon"><i class="fa-solid fa-users"></i></div>
+    <div>
+      <div class="hud-label">Pelanggan</div>
+      <div class="hud-value" id="hud-customers">0</div>
+    </div>
+  </div>
+</div>
+
+<button id="build-menu-btn"><i class="fa-solid fa-hammer"></i> Bangun</button>
+<button id="shop-menu-btn"><i class="fa-solid fa-truck-fast"></i> Stok</button>
+<button id="home-btn"><i class="fa-solid fa-house"></i> Toko</button>
+<button id="reset-btn"><i class="fa-solid fa-trash"></i> Reset</button>
+
+<div id="notif-area"></div>
+<div id="cam-zone"></div>
+
+<div id="move-controls">
+  <button class="wasd-btn" id="w-btn"><i class="fa-solid fa-arrow-up"></i></button>
+  <button class="wasd-btn" id="a-btn"><i class="fa-solid fa-arrow-left"></i></button>
+  <button class="wasd-btn" id="s-btn"><i class="fa-solid fa-arrow-down"></i></button>
+  <button class="wasd-btn" id="d-btn"><i class="fa-solid fa-arrow-right"></i></button>
+</div>
+
+<div id="action-buttons">
+  <button class="act-btn" id="jump-btn"><i class="fa-solid fa-arrow-up"></i></button>
+  <button class="act-btn restock" id="restock-btn">RESTOCK</button>
+  <button class="act-btn redeem" id="redeem-btn"><i class="fa-solid fa-gift"></i></button>
+</div>
+
+<div id="build-controls">
+  <button class="bc-btn cancel" id="cancel-build"><i class="fa-solid fa-xmark"></i> Batal</button>
+  <button class="bc-btn" id="rotate-build"><i class="fa-solid fa-rotate"></i> Putar</button>
+  <button class="bc-btn confirm" id="place-build"><i class="fa-solid fa-check"></i> Pasang</button>
+</div>
+
+<div class="menu-overlay" id="menu-overlay"></div>
+
+<div id="build-menu">
+  <h2>Pilih Item Bangunan <button class="close-menu-btn" id="close-build-menu"><i class="fa-solid fa-xmark"></i></button></h2>
+  <div class="build-grid" id="build-grid"></div>
+</div>
+
+<div id="shop-menu">
+  <h2>Toko Restock Barang <button class="close-menu-btn" id="close-shop-menu"><i class="fa-solid fa-xmark"></i></button></h2>
+  <div class="build-grid" id="shop-grid"></div>
+</div>
+
+<div id="redeem-dialog">
+  <div class="redeem-box">
+    <h2><i class="fa-solid fa-gift"></i> Redeem NPC</h2>
+    <p class="subtitle">Pilih hadiahmu! Bayar sesuai harga untuk mendapatkan 1 kode rahasia.</p>
+    <div id="redeem-options" class="option-grid">
+      <div class="option-card" id="opt-nflx">
+        <i class="fa-solid fa-clapperboard" style="color: #e50914;"></i>
+        <div class="opt-title">Cookies NFLX</div>
+        <div class="opt-price">$1500</div>
+      </div>
+      <div class="option-card" id="opt-deezer">
+        <i class="fa-brands fa-deezer" style="color: #a238ff;"></i>
+        <div class="opt-title">Akun Deezer</div>
+        <div class="opt-price">$1200</div>
+      </div>
+    </div>
+
+    <div id="redeem-result">
+      <p style="color: #fff; margin-bottom: 10px;">Kode Kamu:</p>
+      <div id="code-box">LOADING...</div>
+      <button id="copy-code-btn" class="btn-copy-code">
+        <i class="fa-solid fa-copy"></i> Salin Kode
+      </button>
+      <a id="redeem-link" href="#" target="_blank" class="redeem-link">
+        <i class="fa-solid fa-up-right-from-square"></i> Buka Link Redeem
+      </a>
+      <button id="close-redeem-btn" class="btn-redeem-back">Kembali</button>
+    </div>
+    <button id="cancel-redeem-btn" class="btn-redeem-back">Tutup</button>
+  </div>
+</div>
+
+<div class="overlay" id="start-screen">
+  <h1>CITY RETAIL TYCOON</h1>
+  <p>Pilih Kualitas Grafik sesuai HP-mu. Jalankan game, masuk mode Layar Penuh (Fullscreen) & Horizontal (Landscape).</p>
+  <button class="start-btn" id="start-btn">Mulai Main</button>
+  <button class="settings-btn" id="open-settings-btn"><i class="fa-solid fa-gear"></i> Pengaturan Grafik</button>
+</div>
+
+<div id="settings-dialog">
+  <div class="settings-box">
+    <h2><i class="fa-solid fa-gear"></i> Pengaturan Grafik</h2>
+    <p style="color: #ccc; font-size: 12px; margin-bottom: 15px;">Pilih kualitas grafik sesuai kemampuan HP-mu agar tidak lag.</p>
+    <div class="quality-options">
+      <div class="quality-btn" id="opt-low">
+        <i class="fa-solid fa-tachometer-alt"></i>
+        <span>Low</span>
+        <small style="font-size: 10px; opacity: 0.7;">Super Smooth</small>
+      </div>
+      <div class="quality-btn active" id="opt-medium">
+        <i class="fa-solid fa-balance-scale"></i>
+        <span>Medium</span>
+        <small style="font-size: 10px; opacity: 0.7;">Seimbang</small>
+      </div>
+      <div class="quality-btn" id="opt-high">
+        <i class="fa-solid fa-gem"></i>
+        <span>High</span>
+        <small style="font-size: 10px; opacity: 0.7;">HD Grafis</small>
+      </div>
+    </div>
+    <button id="save-settings-btn" class="btn-save-settings">Simpan</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+// ====================== FIREBASE CONFIG ======================
+const firebaseConfig = {
+  apiKey: "AIzaSyDXKeIOlD8r0xNM61pzh82og0DBQvlnxEk",
+  authDomain: "fire-me-a2f00.firebaseapp.com",
+  databaseURL: "https://fire-me-a2f00-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "fire-me-a2f00",
+  storageBucket: "fire-me-a2f00.firebasestorage.app",
+  messagingSenderId: "1010150322376",
+  appId: "1:1010150322376:web:625ab284498f3e2bea75fd"
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+async function processRedeem(path, isKey, url, price) {
+  if (state.money < price) { showNotif(`Uang tidak cukup! Butuh $${price}`, 'bad'); return; }
+  state.money -= price; updateHUD(); showNotif(`-$${price}`, 'bad'); saveGame(); 
+  
+  redeemOptions.style.display = 'none'; redeemResult.style.display = 'block'; codeBox.textContent = 'Mengambil dari database...';
+  document.getElementById('redeem-link').href = '#';
+  
+  try {
+    const dbRef = ref(db, path); const snapshot = await get(dbRef);
+    if (snapshot.exists()) {
+      const data = snapshot.val(); let availableItems = [];
+      Object.keys(data).forEach(key => {
+        const item = data[key];
+        if (isKey) { if (!item || typeof item === 'string' || item.status !== 'used') { availableItems.push({ key, item }); } } 
+        else { if (item && typeof item === 'object' && item.status !== 'used') { availableItems.push({ key, item }); } }
+      });
+
+      if (availableItems.length > 0) {
+        const randomChoice = availableItems[Math.floor(Math.random() * availableItems.length)]; let finalCode = "";
+        if (isKey) { finalCode = randomChoice.key; } 
+        else { const item = randomChoice.item; if (typeof item === 'string') { finalCode = item; } else { finalCode = item.code || JSON.stringify(item); } }
+        
+        codeBox.textContent = finalCode || 'KODE TIDAK DITEMUKAN';
+        document.getElementById('redeem-link').href = url; showNotif('Kode berhasil didapatkan!', 'good');
+      } else { codeBox.textContent = 'STOK KOSONG ATAU SEMUA SUDAH USED'; showNotif('Maaf, tidak ada stok tersedia', 'bad'); }
+    } else { codeBox.textContent = 'DATABASE KOSONG'; showNotif('Maaf, database kode kosong', 'bad'); }
+  } catch (error) { console.error("Error fetching code:", error); codeBox.textContent = 'ERROR DATABASE'; showNotif('Gagal mengambil kode', 'bad'); }
+}
+// =====================================================================
+
+// ====================== SAVE & LOAD SYSTEM ======================
+const SAVE_KEY = 'cityRetailTycoonSaveData';
+const SETTINGS_KEY = 'cityRetailTycoonSettings';
+
+function saveGame() {
+  const data = { money: state.money, inventoryStock: state.inventoryStock, playerPos: { x: player.position.x, y: player.position.y, z: player.position.z }, playerRot: player.rotation.y, camYaw: state.camYaw, bu
