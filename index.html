@@ -342,6 +342,11 @@ html, body {
   </div>
 </div>
 
+<!-- 1. Load Firebase Non-Module (Compat) - Aman dari blokir GitHub Pages -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
+<!-- 2. Load Three.js via importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -352,10 +357,8 @@ html, body {
 
 <script type="module">
 import * as THREE from 'three';
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
-// ====================== FIREBASE CONFIG ======================
+// ====================== FIREBASE CONFIG (COMPAT MODE) ======================
 const firebaseConfig = {
   apiKey: "AIzaSyDXKeIOlD8r0xNM61pzh82og0DBQvlnxEk",
   authDomain: "fire-me-a2f00.firebaseapp.com",
@@ -365,8 +368,9 @@ const firebaseConfig = {
   messagingSenderId: "1010150322376",
   appId: "1:1010150322376:web:625ab284498f3e2bea75fd"
 };
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+// Inisialisasi Firebase pakai firebase global (Compat)
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
 async function processRedeem(path, isKey, url, price) {
   if (state.money < price) { showNotif(`Uang tidak cukup! Butuh $${price}`, 'bad'); return; }
@@ -376,7 +380,7 @@ async function processRedeem(path, isKey, url, price) {
   document.getElementById('redeem-link').href = '#';
   
   try {
-    const dbRef = ref(db, path); const snapshot = await get(dbRef);
+    const dbRef = db.ref(path); const snapshot = await dbRef.get();
     if (snapshot.exists()) {
       const data = snapshot.val(); let availableItems = [];
       Object.keys(data).forEach(key => {
@@ -403,4 +407,495 @@ const SAVE_KEY = 'cityRetailTycoonSaveData';
 const SETTINGS_KEY = 'cityRetailTycoonSettings';
 
 function saveGame() {
-  const data = { money: state.money, inventoryStock: state.inventoryStock, playerPos: { x: player.position.x, y: player.position.y, z: player.position.z }, playerRot: player.rotation.y, camYaw: state.camYaw, bu
+  const data = { money: state.money, inventoryStock: state.inventoryStock, playerPos: { x: player.position.x, y: player.position.y, z: player.position.z }, playerRot: player.rotation.y, camYaw: state.camYaw, buildables: state.buildables.map(b => ({ type: b.type, pos: { x: b.position.x, y: b.position.y, z: b.position.z }, rotY: b.mesh.rotation.y, stock: b.stock || 0, maxStock: b.maxStock || 0 })) };
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+}
+function loadGame() {
+  const savedData = localStorage.getItem(SAVE_KEY);
+  if (savedData) {
+    const data = JSON.parse(savedData);
+    state.money = data.money; state.inventoryStock = data.inventoryStock;
+    player.position.set(data.playerPos.x, data.playerPos.y, data.playerPos.z); player.rotation.y = data.playerRot; state.camYaw = data.camYaw;
+    data.buildables.forEach(b => {
+      const meshes = createItem(b.type, false); const group = new THREE.Group();
+      meshes.forEach(m => group.add(m)); group.position.set(b.pos.x, b.pos.y, b.pos.z); group.rotation.y = b.rotY; scene.add(group);
+      const obj = { mesh: group, position: group.position.clone(), type: b.type };
+      if (b.type === 'shelf') { obj.stock = b.stock; obj.maxStock = b.maxStock; state.shelves.push(obj); updateShelfVisual(obj); } 
+      else if (b.type === 'register') { obj.queue = []; state.registers.push(obj); } else state.decor.push(obj);
+      state.buildables.push(obj); state.colliders.push(new THREE.Box3().setFromObject(group));
+    }); showNotif('Progress berhasil dimuat!', 'good');
+  }
+}
+function resetGame() { localStorage.removeItem(SAVE_KEY); location.reload(); }
+
+// ====================== GAME STATE ======================
+const state = {
+  money: 1000, isPlacing: false, selectedItem: null, shelves: [], registers: [], decor: [], customers: [], particles: [], buildables: [], cityNpcs: [], camYaw: Math.PI, camPitch: 0.3, keys: { w: false, a: false, s: false, d: false }, nearbyShelf: null, nearRedeemNpc: false, inventoryStock: 0, colliders: [],
+};
+
+const canvas = document.getElementById('canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+scene.fog = new THREE.Fog(0x87ceeb, 60, 250);
+
+const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(0, 5, 10);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+// --- LIGHTING ---
+const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+scene.add(ambient);
+const sunLight = new THREE.DirectionalLight(0xffffff, 0.9);
+sunLight.position.set(50, 80, 30);
+scene.add(sunLight);
+
+// --- QUALITY SETTINGS ---
+let currentQuality = 'medium';
+
+function applyQualitySettings(quality) {
+  currentQuality = quality;
+  if (quality === 'low') {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 0.75));
+    renderer.shadowMap.enabled = false;
+    scene.fog = new THREE.Fog(0x87ceeb, 40, 120);
+    ambient.intensity = 1.0; sunLight.intensity = 0.8;
+  } else if (quality === 'medium') {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
+    renderer.shadowMap.enabled = false;
+    scene.fog = new THREE.Fog(0x87ceeb, 60, 250);
+    ambient.intensity = 0.9; sunLight.intensity = 0.9;
+  } else if (quality === 'high') {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    scene.fog = new THREE.Fog(0x87ceeb, 80, 300);
+    ambient.intensity = 0.8; sunLight.intensity = 1.0;
+  }
+}
+
+const savedSettings = localStorage.getItem(SETTINGS_KEY);
+if (savedSettings) {
+  const q = JSON.parse(savedSettings).quality;
+  applyQualitySettings(q);
+  document.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`opt-${q}`).classList.add('active');
+} else {
+  applyQualitySettings('medium');
+}
+
+// ====================== METROPOLITAN CITY ======================
+const CITY_RADIUS = 150; const BLOCK_SIZE = 36; const ROAD_WIDTH = 14; const STEP = BLOCK_SIZE + ROAD_WIDTH;
+const matGround = new THREE.MeshBasicMaterial({ color: 0x2d4a2b });
+const matRoad = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+const matPark = new THREE.MeshBasicMaterial({ color: 0x4a7c59 });
+const matTrunk = new THREE.MeshBasicMaterial({ color: 0x4a2818 });
+const matLeaves = new THREE.MeshBasicMaterial({ color: 0x2d8a3e });
+const matFountain = new THREE.MeshBasicMaterial({ color: 0x888888 });
+
+const grassGround = new THREE.Mesh(new THREE.PlaneGeometry(CITY_RADIUS * 2, CITY_RADIUS * 2), matGround);
+grassGround.rotation.x = -Math.PI / 2; grassGround.position.y = -0.05; grassGround.receiveShadow = true; scene.add(grassGround);
+
+for(let x = -CITY_RADIUS; x <= CITY_RADIUS; x += STEP) {
+  const vRoad = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_WIDTH, CITY_RADIUS * 2), matRoad);
+  vRoad.rotation.x = -Math.PI / 2; vRoad.position.set(x, 0.01, 0); vRoad.receiveShadow = true; scene.add(vRoad);
+}
+for(let z = -CITY_RADIUS; z <= CITY_RADIUS; z += STEP) {
+  const hRoad = new THREE.Mesh(new THREE.PlaneGeometry(CITY_RADIUS * 2, ROAD_WIDTH), matRoad);
+  hRoad.rotation.x = -Math.PI / 2; hRoad.position.set(0, 0.01, z); hRoad.receiveShadow = true; scene.add(hRoad);
+}
+
+function createBuilding(x, z, w, d, h, color) {
+  const bldg = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+  bldg.position.set(x, h/2, z); bldg.castShadow = true; bldg.receiveShadow = true; scene.add(bldg);
+  state.colliders.push(new THREE.Box3().setFromObject(bldg));
+}
+function createPark(x, z, size, forceFountain = false) {
+  const parkGround = new THREE.Mesh(new THREE.BoxGeometry(size, 0.1, size), matPark);
+  parkGround.position.set(x, 0.05, z); parkGround.receiveShadow = true; scene.add(parkGround);
+  for(let i=0; i<6; i++) {
+    const tx = x + (Math.random() - 0.5) * size * 0.8; const tz = z + (Math.random() - 0.5) * size * 0.8;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 1.5, 5), matTrunk);
+    trunk.position.set(tx, 0.75, tz); scene.add(trunk);
+    const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(1.5, 0), matLeaves);
+    leaves.position.set(tx, 2.5, tz); leaves.scale.y = 1.3; scene.add(leaves);
+    state.colliders.push(new THREE.Box3().setFromObject(trunk));
+  }
+  if (forceFountain || Math.random() > 0.7) {
+    const fountainBase = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 1.5, 8), matFountain);
+    fountainBase.position.set(x, 0.75, z); scene.add(fountainBase);
+    state.colliders.push(new THREE.Box3().setFromObject(fountainBase));
+  }
+}
+createPark(0, -50, 30, true);
+
+const cityColors = [0x8d99ae, 0xeddcd2, 0xe56b6f, 0xb56576, 0x6d597a, 0x355070, 0x4a4e69, 0x5e548e, 0x9f86c0];
+for(let i = -CITY_RADIUS; i <= CITY_RADIUS; i += STEP) {
+  for(let j = -CITY_RADIUS; j <= CITY_RADIUS; j += STEP) {
+    if (Math.abs(i) < 30 && Math.abs(j) < 30) continue;
+    if (Math.abs(i) < 15 && Math.abs(j - (-50)) < 30) continue;
+    const cx = i + BLOCK_SIZE/2; const cz = j + BLOCK_SIZE/2;
+    const type = Math.random();
+    if (type < 0.2) { createPark(cx, cz, BLOCK_SIZE); } 
+    else if (type < 0.5) { const h = 15 + Math.random() * 35; createBuilding(cx, cz, BLOCK_SIZE - 2, BLOCK_SIZE - 2, h, cityColors[Math.floor(Math.random()*cityColors.length)]); } 
+    else { for(let k=0; k<2; k++) { const bx = cx + (Math.random() - 0.5) * 15; const bz = cz + (Math.random() - 0.5) * 15; const h = 8 + Math.random() * 15; createBuilding(bx, bz, 8, 8, h, cityColors[Math.floor(Math.random()*cityColors.length)]); } }
+  }
+}
+
+// ====================== TOKO ======================
+const STORE_W = 24, STORE_D = 24, STORE_H = 10;
+const sidewalk = new THREE.Mesh(new THREE.BoxGeometry(STORE_W + 10, 0.2, 10), new THREE.MeshLambertMaterial({ color: 0x999999 }));
+sidewalk.position.set(0, 0.1, -17); scene.add(sidewalk);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(STORE_W, STORE_D), new THREE.MeshLambertMaterial({ color: 0xcccccc }));
+floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0.1, 0); scene.add(floor);
+
+const wallMat = new THREE.MeshLambertMaterial({ color: 0xf0f0f0, side: THREE.DoubleSide });
+const backWall = new THREE.Mesh(new THREE.BoxGeometry(STORE_W, STORE_H, 0.3), wallMat); backWall.position.set(0, STORE_H/2, STORE_D/2); scene.add(backWall);
+const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, STORE_H, STORE_D), wallMat); leftWall.position.set(-STORE_W/2, STORE_H/2, 0); scene.add(leftWall);
+const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, STORE_H, STORE_D), wallMat); rightWall.position.set(STORE_W/2, STORE_H/2, 0); scene.add(rightWall);
+const frontWallL = new THREE.Mesh(new THREE.BoxGeometry(7, STORE_H, 0.3), wallMat); frontWallL.position.set(-8.5, STORE_H/2, -STORE_D/2); scene.add(frontWallL);
+const frontWallR = new THREE.Mesh(new THREE.BoxGeometry(7, STORE_H, 0.3), wallMat); frontWallR.position.set(8.5, STORE_H/2, -STORE_D/2); scene.add(frontWallR);
+
+const glassMat = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.3 });
+const glassDoor = new THREE.Mesh(new THREE.BoxGeometry(10, 9, 0.1), glassMat); glassDoor.position.set(0, 4.5, -STORE_D/2); scene.add(glassDoor);
+
+const signBg = new THREE.Mesh(new THREE.BoxGeometry(10, 1.5, 0.2), new THREE.MeshBasicMaterial({ color: 0xe50914 })); signBg.position.set(0, 9.5, -STORE_D/2 - 0.2); scene.add(signBg);
+
+state.colliders.push(new THREE.Box3().setFromObject(backWall)); state.colliders.push(new THREE.Box3().setFromObject(leftWall));
+state.colliders.push(new THREE.Box3().setFromObject(rightWall)); state.colliders.push(new THREE.Box3().setFromObject(frontWallL));
+state.colliders.push(new THREE.Box3().setFromObject(frontWallR));
+
+// ====================== CHARACTERS WITH FACES & HAIR ======================
+const hairColors = [0x1a1a1a, 0x4a2818, 0x8b4513, 0xd4a373, 0xfcd34d, 0xa855f7, 0xec4899];
+
+function createRobloxCharacter(shirtColor, pantsColor, skinColor, hairStyle = 'classic') {
+  const group = new THREE.Group(); const parts = {};
+  const matSkin = new THREE.MeshLambertMaterial({ color: skinColor }); 
+  const matShirt = new THREE.MeshLambertMaterial({ color: shirtColor }); 
+  const matPants = new THREE.MeshLambertMaterial({ color: pantsColor });
+  const matBlack = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const matRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  
+  parts.torso = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.5), matShirt); parts.torso.position.y = 1.5; group.add(parts.torso);
+  parts.head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), matSkin); parts.head.position.y = 2.4; group.add(parts.head);
+  
+  // Mata
+  const lEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.05), matBlack); lEye.position.set(-0.18, 2.45, 0.41); group.add(lEye);
+  const rEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.05), matBlack); rEye.position.set(0.18, 2.45, 0.41); group.add(rEye);
+  // Alis Mata
+  const lBrow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 0.05), matBlack); lBrow.position.set(-0.18, 2.6, 0.41); group.add(lBrow);
+  const rBrow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 0.05), matBlack); rBrow.position.set(0.18, 2.6, 0.41); group.add(rBrow);
+  // Mulut Senyum
+  const smile = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.05), matBlack); smile.position.set(0, 2.2, 0.41); group.add(smile);
+  const smileCorner1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), matRed); smileCorner1.position.set(-0.2, 2.2, 0.41); group.add(smileCorner1);
+  const smileCorner2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), matRed); smileCorner2.position.set(0.2, 2.2, 0.41); group.add(smileCorner2);
+
+  // Rambut
+  const hairColor = hairColors[Math.floor(Math.random() * hairColors.length)];
+  const matHair = new THREE.MeshLambertMaterial({ color: hairColor });
+  if (hairStyle === 'classic' || hairStyle === 'spiky') {
+      const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.2, 0.85), matHair); hairTop.position.y = 2.85; group.add(hairTop);
+      if (hairStyle === 'spiky') {
+          for(let i=0; i<3; i++) { const spike = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.3, 4), matHair); spike.position.set(-0.2 + i*0.2, 3.1, 0); group.add(spike); }
+      }
+  } else if (hairStyle === 'mohawk') {
+      const mohawk = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.7), matHair); mohawk.position.y = 3.0; group.add(mohawk);
+  }
+  
+  parts.lArm = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1, 0.4), matShirt); parts.lArm.position.set(-0.7, 1.5, 0); group.add(parts.lArm);
+  parts.rArm = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1, 0.4), matShirt); parts.rArm.position.set(0.7, 1.5, 0); group.add(parts.rArm);
+  parts.lLeg = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1, 0.45), matPants); parts.lLeg.position.set(-0.25, 0.5, 0); group.add(parts.lLeg);
+  parts.rLeg = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1, 0.45), matPants); parts.rLeg.position.set(0.25, 0.5, 0); group.add(parts.rLeg);
+  
+  group.userData.parts = parts; return group;
+}
+function animateRobloxCharacter(char, isWalking, isJumping, time) {
+  if (!char.userData.parts) return; const p = char.userData.parts;
+  if (isJumping) { p.lLeg.rotation.x = -0.6; p.rLeg.rotation.x = 0.6; p.lArm.rotation.x = -1.5; p.rArm.rotation.x = -1.5; } 
+  else if (isWalking) { const speed = 8; p.lLeg.rotation.x = Math.sin(time * speed) * 0.6; p.rLeg.rotation.x = -Math.sin(time * speed) * 0.6; p.lArm.rotation.x = -Math.sin(time * speed) * 0.6; p.rArm.rotation.x = Math.sin(time * speed) * 0.6; } 
+  else { p.lLeg.rotation.x *= 0.8; p.rLeg.rotation.x *= 0.8; p.lArm.rotation.x *= 0.8; p.rArm.rotation.x *= 0.8; }
+}
+
+const player = createRobloxCharacter(0x3b82f6, 0x1e3a8a, 0xfdbcb1, 'classic'); player.position.set(0, 0, 5); scene.add(player);
+
+const npcSkins = [
+  { shirt: 0xef4444, pants: 0x991b1b, skin: 0xfdbcb1 }, { shirt: 0x10b981, pants: 0x065f46, skin: 0xd4a373 }, { shirt: 0xfcd34d, pants: 0x92400e, skin: 0xfdbcb1 }, { shirt: 0x8b5cf6, pants: 0x4c1d95, skin: 0xe0ac69 }, { shirt: 0xec4899, pants: 0x831843, skin: 0xfdbcb1 }, { shirt: 0x14b8a6, pants: 0x134e4a, skin: 0xd4a373 }
+];
+const hairStyles = ['classic', 'spiky', 'mohawk', 'bald', 'classic'];
+function spawnCityNpc() {
+  const skin = npcSkins[Math.floor(Math.random() * npcSkins.length)]; 
+  const hair = hairStyles[Math.floor(Math.random() * hairStyles.length)];
+  const npc = createRobloxCharacter(skin.shirt, skin.pants, skin.skin, hair);
+  const angle = Math.random() * Math.PI * 2; const dist = 30 + Math.random() * 100; npc.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist); scene.add(npc);
+  state.cityNpcs.push({ mesh: npc, targetPos: new THREE.Vector3((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 200), walkSpeed: 1.5 + Math.random() * 1, isMoving: true });
+}
+for(let i=0; i<20; i++) spawnCityNpc();
+function updateCityNpcs(dt, time) {
+  state.cityNpcs.forEach(c => {
+    animateRobloxCharacter(c.mesh, c.isMoving, false, time);
+    if (c.targetPos) {
+      const dir = new THREE.Vector3().subVectors(c.targetPos, c.mesh.position); dir.y = 0; const dist = dir.length();
+      if (dist > 1.0) { dir.normalize(); c.mesh.position.addScaledVector(dir, c.walkSpeed * dt); c.mesh.rotation.y = Math.atan2(dir.x, dir.z); } 
+      else { c.targetPos = new THREE.Vector3((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 200); }
+    }
+  });
+}
+
+const redeemNpc = createRobloxCharacter(0xa855f7, 0x4c1d95, 0xfdbcb1, 'spiky'); redeemNpc.position.set(-5, 0, 5); scene.add(redeemNpc);
+const giftBoxGroup = new THREE.Group();
+const giftBase = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.6), new THREE.MeshLambertMaterial({ color: 0xff0000 }));
+const giftLid = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.15, 0.65), new THREE.MeshLambertMaterial({ color: 0xff0000 })); giftLid.position.y = 0.275;
+giftBoxGroup.add(giftBase); giftBoxGroup.add(giftLid); giftBoxGroup.position.y = 3.5; redeemNpc.add(giftBoxGroup); redeemNpc.userData.giftBox = giftBoxGroup;
+
+// ====================== GHOST & BUILDING ======================
+const ghostGroup = new THREE.Group(); ghostGroup.visible = false; scene.add(ghostGroup);
+const buildCatalog = [ { id: 'shelf', name: 'Rak Besar', price: 150, icon: 'fa-boxes-stacked' }, { id: 'register', name: 'Kasir', price: 250, icon: 'fa-cash-register' }, { id: 'plant', name: 'Tanaman', price: 80, icon: 'fa-seedling' } ];
+function renderBuildMenu() {
+  const grid = document.getElementById('build-grid'); grid.innerHTML = '';
+  buildCatalog.forEach(item => {
+    const div = document.createElement('div'); div.className = 'build-item-card';
+    if (state.money < item.price) div.classList.add('locked');
+    div.innerHTML = `<i class="fa-solid ${item.icon}"></i><div class="name">${item.name}</div><div class="price">$${item.price}</div>`;
+    div.onclick = () => { if (state.money < item.price) return showNotif('Uang tidak cukup', 'bad'); state.selectedItem = item.id; state.isPlacing = true; createGhost(item.id); closeAllMenus(); document.getElementById('build-controls').classList.add('active'); };
+    grid.appendChild(div);
+  });
+}
+function createGhost(itemId) { while(ghostGroup.children.length > 0) ghostGroup.remove(ghostGroup.children[0]); const meshes = createItem(itemId, true); meshes.forEach(m => ghostGroup.add(m)); ghostGroup.visible = true; updateGhostPosition(); }
+function updateGhostPosition() { if (!state.isPlacing) return; const forward = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(0, player.rotation.y, 0)); forward.y = 0; forward.normalize(); ghostGroup.position.copy(player.position).addScaledVector(forward, 2.5); ghostGroup.position.y = 0; }
+function placeItem() {
+  const itemData = buildCatalog.find(i => i.id === state.selectedItem); if (!itemData || state.money < itemData.price) return;
+  const pos = ghostGroup.position.clone();
+  if (Math.abs(pos.x) > 11 || Math.abs(pos.z) > 11) return showNotif('Bangun di dalam toko!', 'bad');
+  if (state.buildables.some(b => b.position.distanceTo(pos) < 2.5)) return showNotif('Terlalu dekat dengan item lain!', 'bad');
+  state.money -= itemData.price; const meshes = createItem(itemData.id, false); const group = new THREE.Group();
+  meshes.forEach(m => group.add(m)); group.position.copy(pos); group.rotation.y = ghostGroup.rotation.y; scene.add(group);
+  const obj = { mesh: group, position: pos, type: itemData.id };
+  if (itemData.id === 'shelf') { obj.stock = 20; obj.maxStock = 20; state.shelves.push(obj); } else if (itemData.id === 'register') { obj.queue = []; state.registers.push(obj); } else state.decor.push(obj);
+  state.buildables.push(obj); state.colliders.push(new THREE.Box3().setFromObject(group)); updateHUD(); cancelBuild(); saveGame();
+}
+function cancelBuild() { state.isPlacing = false; state.selectedItem = null; ghostGroup.visible = false; document.getElementById('build-controls').classList.remove('active'); }
+
+function createItem(type, isGhost = false) {
+  const meshes = []; const mat = (c) => new THREE.MeshLambertMaterial({ color: c, transparent: isGhost, opacity: 0.6 });
+  if (type === 'shelf') {
+    const g = new THREE.Group(); const frameMat = mat(0x333333);
+    const baseFrame = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 0.8), frameMat); baseFrame.position.y = 0.05; g.add(baseFrame);
+    const topFrame = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 0.8), frameMat); topFrame.position.y = 2.0; g.add(topFrame);
+    [[-1.05, -0.35], [1.05, -0.35], [-1.05, 0.35], [1.05, 0.35]].forEach(p => { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.1, 0.1), frameMat); leg.position.set(p[0], 1.05, p[1]); g.add(leg); });
+    const shelfMat = mat(0xe0e0e0); const shelfHeights = [0.4, 0.9, 1.4, 1.9]; const boxColors = [0xef4444, 0x3b82f6, 0xfcd34d, 0x10b981, 0xf97316, 0x8b5cf6];
+    shelfHeights.forEach((y, index) => {
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.05, 0.7), shelfMat); shelf.position.y = y; g.add(shelf);
+      if (!isGhost) { const c1 = boxColors[(index * 2) % boxColors.length]; const c2 = boxColors[(index * 2 + 1) % boxColors.length];
+        for(let i=0; i<4; i++) { const box = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.5), mat(i%2===0 ? c1 : c2)); box.position.set(-0.75 + i * 0.5, y + 0.2, 0); box.userData.isProduct = true; g.add(box); } }
+    });
+    if (!isGhost) { const lampMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 4, 4), lampMat); lamp.position.set(0, 2.15, 0.4); g.add(lamp); g.userData.lamp = lamp; }
+    meshes.push(g);
+  } else if (type === 'register') {
+    const g = new THREE.Group(); const desk = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 1), mat(0x2d3748)); desk.position.y = 0.5; g.add(desk);
+    const reg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.3), mat(0xe53e3e)); reg.position.set(0.7, 1.25, -0.2); g.add(reg);
+    meshes.push(g);
+  } else if (type === 'plant') {
+    const g = new THREE.Group(); const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 6), mat(0x8b4513)); pot.position.y = 0.3; g.add(pot);
+    const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8, 0), mat(0x2d8a3e)); leaves.position.y = 1.2; g.add(leaves); meshes.push(g);
+  }
+  return meshes;
+}
+function updateShelfVisual(shelf) {
+  if (!shelf.mesh.userData.lamp) return; const lamp = shelf.mesh.userData.lamp; const percent = shelf.stock / shelf.maxStock;
+  if (percent > 0.5) lamp.material.color.setHex(0x00ff00); else if (percent > 0) lamp.material.color.setHex(0xffd700); else lamp.material.color.setHex(0xff0000);
+  shelf.mesh.children.forEach(child => { if (child.userData.isProduct) child.visible = shelf.stock > 0; });
+}
+
+// ====================== CUSTOMERS ======================
+const ENTRANCE = new THREE.Vector3(0, 0, -10);
+const customerColors = [0xfb7185, 0xfcd34d, 0x6ee7b7, 0x60a5fa, 0xc084fc, 0xfb923c];
+function spawnCustomer() {
+  if (state.customers.length >= 8) return; if (state.shelves.length === 0 || state.registers.length === 0) return;
+  const availableShelves = state.shelves.filter(s => s.stock > 0);
+  if (availableShelves.length === 0) { showNotif('Semua rak kosong! Restock dulu', 'bad'); return; }
+  const color = customerColors[Math.floor(Math.random() * customerColors.length)]; 
+  const hair = hairStyles[Math.floor(Math.random() * hairStyles.length)];
+  const group = createRobloxCharacter(color, 0x1a1a1a, 0xfdbcb1, hair); group.position.copy(ENTRANCE); scene.add(group);
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.5, 4), new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9 })); arrow.position.y = 3.5; arrow.rotation.x = Math.PI; group.add(arrow);
+  const basket = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), new THREE.MeshLambertMaterial({ color: 0xaaaaaa })); basket.position.set(0.7, 1.2, 0); basket.visible = false; group.add(basket);
+  const targetShelf = availableShelves[Math.floor(Math.random() * availableShelves.length)];
+  state.customers.push({ mesh: group, state: 'walk_to_shelf', targetPos: targetShelf.position.clone(), targetObj: targetShelf, walkSpeed: 2.5, stateTime: 0, arrow: arrow, basket: basket, isMoving: true });
+}
+function updateNPC(c, dt, time) {
+  c.stateTime += dt; animateRobloxCharacter(c.mesh, c.isMoving, false, time);
+  if (c.targetPos) {
+    const dir = new THREE.Vector3().subVectors(c.targetPos, c.mesh.position); dir.y = 0; const dist = dir.length();
+    if (dist > 1.0) { dir.normalize(); c.mesh.position.addScaledVector(dir, c.walkSpeed * dt); c.mesh.rotation.y = Math.atan2(dir.x, dir.z); c.isMoving = true; } 
+    else { c.targetPos = null; c.isMoving = false; handleArrival(c); }
+  }
+}
+function handleArrival(c) {
+  if (c.state === 'walk_to_shelf') { c.state = 'shopping'; c.stateTime = 0; if (c.targetObj && c.targetObj.stock > 0) { c.targetObj.stock--; updateShelfVisual(c.targetObj); saveGame(); } } 
+  else if (c.state === 'walk_to_register') { c.state = 'queuing'; } 
+  else if (c.state === 'leaving') { c.toRemove = true; scene.remove(c.mesh); }
+}
+function updateNPCStates(dt, time) {
+  state.customers.forEach(c => {
+    if (c.arrow) c.arrow.position.y = 3.5 + Math.sin(time * 2) * 0.2;
+    if (c.state === 'shopping') { if (c.stateTime > 4) { c.basket.visible = true; const r = state.registers.find(rg => rg.queue.length < 3); if (r) { r.queue.push(c); c.state = 'walk_to_register'; c.targetRegister = r; updateQueue(r); } else { c.state = 'leaving'; c.targetPos = ENTRANCE.clone(); } } } 
+    else if (c.state === 'queuing') { if (c.targetRegister && c.targetRegister.queue[0] === c) { c.state = 'paying'; c.stateTime = 0; } } 
+    else if (c.state === 'paying') { if (c.stateTime > 2) { state.money += 45; showNotif('+$45 Diterima', 'good'); spawnMoneyParticle(c.mesh.position); if (c.targetRegister) { const idx = c.targetRegister.queue.indexOf(c); if(idx>=0) c.targetRegister.queue.splice(idx, 1); updateQueue(c.targetRegister); } c.state = 'leaving'; c.targetPos = ENTRANCE.clone(); saveGame(); } }
+    updateNPC(c, dt, time);
+  }); state.customers = state.customers.filter(c => !c.toRemove);
+}
+function updateQueue(reg) { reg.queue.forEach((c, i) => { c.targetPos = new THREE.Vector3(reg.position.x, 0, reg.position.z + 1.5 + i * 1.2); }); }
+
+function spawnMoneyParticle(pos) { for (let i=0; i<3; i++) { const p = new THREE.Mesh(new THREE.CircleGeometry(0.15, 4), new THREE.MeshBasicMaterial({ color: 0x6ee7b7, side: THREE.DoubleSide })); p.position.copy(pos); p.position.y += 1; scene.add(p); state.particles.push({ mesh: p, vel: new THREE.Vector3((Math.random()-0.5)*2, 3, (Math.random()-0.5)*2), life: 1.0 }); } }
+function updateParticles(dt) { state.particles.forEach(p => { p.life -= dt; p.vel.y -= 8 * dt; p.mesh.position.addScaledVector(p.vel, dt); p.mesh.material.opacity = p.life / 1.0; p.mesh.material.transparent = true; p.mesh.lookAt(camera.position); }); state.particles = state.particles.filter(p => p.life > 0); }
+
+// ====================== MENU & CONTROLS ======================
+const camZone = document.getElementById('cam-zone'); let camActive = false, camId = null, camLastX = 0; let jumpPressed = false;
+function setupWasd(btnId, keyName) { const btn = document.getElementById(btnId); btn.addEventListener('touchstart', e => { e.preventDefault(); state.keys[keyName] = true; btn.classList.add('active'); }, { passive: false }); btn.addEventListener('touchend', e => { e.preventDefault(); state.keys[keyName] = false; btn.classList.remove('active'); }, { passive: false }); }
+setupWasd('w-btn', 'w'); setupWasd('a-btn', 'a'); setupWasd('s-btn', 's'); setupWasd('d-btn', 'd');
+document.getElementById('jump-btn').addEventListener('touchstart', e => { e.preventDefault(); jumpPressed = true; }, { passive: false });
+document.getElementById('jump-btn').addEventListener('touchend', e => { e.preventDefault(); jumpPressed = false; }, { passive: false });
+
+function closeAllMenus() { document.getElementById('build-menu').classList.remove('open'); document.getElementById('shop-menu').classList.remove('open'); document.getElementById('menu-overlay').classList.remove('active'); }
+document.getElementById('build-menu-btn').addEventListener('click', () => { closeAllMenus(); document.getElementById('build-menu').classList.add('open'); document.getElementById('menu-overlay').classList.add('active'); renderBuildMenu(); });
+document.getElementById('shop-menu-btn').addEventListener('click', () => { closeAllMenus(); document.getElementById('shop-menu').classList.add('open'); document.getElementById('menu-overlay').classList.add('active'); renderShopMenu(); });
+document.getElementById('menu-overlay').addEventListener('click', closeAllMenus);
+document.getElementById('close-build-menu').addEventListener('click', closeAllMenus);
+document.getElementById('close-shop-menu').addEventListener('click', closeAllMenus);
+document.getElementById('home-btn').addEventListener('click', () => { player.position.set(0, 0, 5); state.camYaw = Math.PI; camera.position.set(0, 5, 10); showNotif('Teleport ke Toko', 'good'); });
+document.getElementById('reset-btn').addEventListener('click', () => { if (confirm('Apakah kamu yakin ingin mereset game? Semua progress akan hilang!')) { resetGame(); } });
+
+camZone.addEventListener('touchstart', e => { if (!e.target.closest('button') && !e.target.closest('.menu-overlay') && !e.target.closest('#build-menu') && !e.target.closest('#shop-menu') && !e.target.closest('#redeem-dialog')) { e.preventDefault(); if (camId === null) { camId = e.changedTouches[0].identifier; camLastX = e.changedTouches[0].clientX; camActive = true; } } }, { passive: false });
+camZone.addEventListener('touchmove', e => { e.preventDefault(); if (camActive) { for (let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === camId) { const dx = e.changedTouches[i].clientX - camLastX; state.camYaw -= dx * 0.005; camLastX = e.changedTouches[i].clientX; } } } }, { passive: false });
+camZone.addEventListener('touchend', e => { e.preventDefault(); for (let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === camId) { camId = null; camActive = false; } } }, { passive: false });
+
+document.getElementById('restock-btn').addEventListener('click', () => { if (state.nearbyShelf && state.inventoryStock > 0) { const shelf = state.nearbyShelf; const needed = shelf.maxStock - shelf.stock; const toFill = Math.min(needed, state.inventoryStock); shelf.stock += toFill; state.inventoryStock -= toFill; updateShelfVisual(shelf); showNotif(`Rak diisi ${toFill} stok`, 'good'); updateHUD(); saveGame(); } else if (state.inventoryStock <= 0) { showNotif('Stok gudang kosong! Beli di toko', 'bad'); } });
+
+const redeemDialog = document.getElementById('redeem-dialog'); const redeemOptions = document.getElementById('redeem-options'); const redeemResult = document.getElementById('redeem-result'); const codeBox = document.getElementById('code-box');
+document.getElementById('redeem-btn').addEventListener('click', () => { redeemDialog.classList.add('active'); resetRedeemDialog(); });
+document.getElementById('cancel-redeem-btn').addEventListener('click', () => redeemDialog.classList.remove('active'));
+document.getElementById('close-redeem-btn').addEventListener('click', () => resetRedeemDialog());
+function resetRedeemDialog() { redeemOptions.style.display = 'grid'; redeemResult.style.display = 'none'; }
+document.getElementById('copy-code-btn').addEventListener('click', () => {
+  const codeText = codeBox.textContent; const showSuccess = () => showNotif('Kode berhasil disalin!', 'good'); const showFailed = () => showNotif('Gagal menyalin kode', 'bad');
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(codeText).then(showSuccess).catch(() => fallbackCopyTextToClipboard(codeText, showSuccess, showFailed)); } else { fallbackCopyTextToClipboard(codeText, showSuccess, showFailed); }
+});
+function fallbackCopyTextToClipboard(text, onSuccess, onFail) { const textArea = document.createElement('textarea'); textArea.value = text; textArea.style.top = "0"; textArea.style.left = "0"; textArea.style.position = "fixed"; document.body.appendChild(textArea); textArea.focus(); textArea.select(); try { const successful = document.execCommand('copy'); if (successful) onSuccess(); else onFail(); } catch (err) { onFail(); } document.body.removeChild(textArea); }
+
+document.getElementById('opt-nflx').addEventListener('click', () => { processRedeem('codes', true, 'https://knighttora-sketch.github.io/Cokiredeem/', 1500); });
+document.getElementById('opt-deezer').addEventListener('click', () => { processRedeem('redeem_codes', false, 'https://knighttora-sketch.github.io/Redembaru/', 1200); });
+
+const shopCatalog = [ { id: 'stock_s', name: 'Stok Kecil', desc: '10 Stok', price: 50, amount: 10, icon: 'fa-box' }, { id: 'stock_m', name: 'Stok Sedang', desc: '25 Stok', price: 100, amount: 25, icon: 'fa-boxes-packing' }, { id: 'stock_l', name: 'Stok Besar', desc: '50 Stok', price: 175, amount: 50, icon: 'fa-warehouse' } ];
+function renderShopMenu() { const grid = document.getElementById('shop-grid'); grid.innerHTML = ''; shopCatalog.forEach(item => { const div = document.createElement('div'); div.className = 'build-item-card'; if (state.money < item.price) div.classList.add('locked'); div.innerHTML = `<i class="fa-solid ${item.icon}"></i><div class="name">${item.name}</div><div class="price">$${item.price} (${item.amount})</div>`; div.onclick = () => { if (state.money < item.price) return showNotif('Uang tidak cukup', 'bad'); state.money -= item.price; state.inventoryStock += item.amount; showNotif(`+${item.amount} Stok Masuk Gudang`, 'good'); updateHUD(); renderShopMenu(); saveGame(); }; grid.appendChild(div); }); }
+document.getElementById('cancel-build').addEventListener('click', cancelBuild);
+document.getElementById('rotate-build').addEventListener('click', () => { ghostGroup.rotation.y += Math.PI / 4; });
+document.getElementById('place-build').addEventListener('click', placeItem);
+
+let mouseDown = false;
+canvas.addEventListener('mousedown', e => { if (!e.target.closest('button') && !e.target.closest('.menu-overlay') && !e.target.closest('#build-menu') && !e.target.closest('#shop-menu') && !e.target.closest('#redeem-dialog')) { mouseDown = true; camLastX = e.clientX; } });
+canvas.addEventListener('mouseup', () => mouseDown = false);
+canvas.addEventListener('mousemove', e => { if (mouseDown) { const dx = e.clientX - camLastX; state.camYaw -= dx * 0.005; camLastX = e.clientX; } });
+
+document.addEventListener('keydown', e => { if (e.code === 'KeyW') state.keys.w = true; if (e.code === 'KeyS') state.keys.s = true; if (e.code === 'KeyA') state.keys.a = true; if (e.code === 'KeyD') state.keys.d = true; if (e.code === 'Space') jumpPressed = true; if (e.code === 'Escape') { closeAllMenus(); redeemDialog.classList.remove('active'); } });
+document.addEventListener('keyup', e => { if (e.code === 'KeyW') state.keys.w = false; if (e.code === 'KeyS') state.keys.s = false; if (e.code === 'KeyA') state.keys.a = false; if (e.code === 'KeyD') state.keys.d = false; if (e.code === 'Space') jumpPressed = false; });
+
+function updateHUD() { document.getElementById('hud-money').textContent = '$' + state.money; document.getElementById('hud-customers').textContent = state.customers.length; }
+function showNotif(text, type='') { const a = document.getElementById('notif-area'); const n = document.createElement('div'); n.className = 'notif ' + type; n.textContent = text; a.appendChild(n); setTimeout(() => n.remove(), 3000); }
+
+// ====================== COLLISION DETECTION ======================
+function isColliding(pos) {
+  for (let box of state.colliders) { let dx = Math.max(box.min.x - pos.x, 0, pos.x - box.max.x); let dz = Math.max(box.min.z - pos.z, 0, pos.z - box.max.z); if (dx*dx + dz*dz < 0.36) return true; }
+  for (let c of state.cityNpcs) { let dx = pos.x - c.mesh.position.x; let dz = pos.z - c.mesh.position.z; if (dx*dx + dz*dz < 1.44) return true; }
+  for (let c of state.customers) { let dx = pos.x - c.mesh.position.x; let dz = pos.z - c.mesh.position.z; if (dx*dx + dz*dz < 1.44) return true; }
+  let rdx = pos.x - redeemNpc.position.x; let rdz = pos.z - redeemNpc.position.z; if (rdx*rdx + rdz*rdz < 1.44) return true;
+  return false;
+}
+
+// ====================== SETTINGS EVENT ======================
+let tempQuality = currentQuality;
+document.getElementById('open-settings-btn').addEventListener('click', () => {
+  tempQuality = currentQuality;
+  document.getElementById('settings-dialog').classList.add('active');
+});
+document.querySelectorAll('.quality-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.quality-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    tempQuality = btn.id.replace('opt-', '');
+  });
+});
+document.getElementById('save-settings-btn').addEventListener('click', () => {
+  applyQualitySettings(tempQuality);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: tempQuality }));
+  document.getElementById('settings-dialog').classList.remove('active');
+  showNotif('Grafik diatur ke ' + tempQuality.toUpperCase(), 'good');
+});
+
+// ====================== MAIN LOOP ======================
+let lastTime = performance.now(); let gameStarted = false; let spawnTimer = 3; let velocityY = 0; let canJump = false; let playerMoving = false;
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now(); const dt = Math.min(0.05, (now - lastTime) / 1000); lastTime = now; const time = now * 0.001; 
+  if (gameStarted) {
+    const speed = 8.0; const forward = new THREE.Vector3(Math.sin(state.camYaw), 0, Math.cos(state.camYaw)); const right = new THREE.Vector3(Math.cos(state.camYaw), 0, -Math.sin(state.camYaw));
+    const moveDir = new THREE.Vector3();
+    if (state.keys.w) moveDir.addScaledVector(forward, 1); if (state.keys.s) moveDir.addScaledVector(forward, -1); if (state.keys.a) moveDir.addScaledVector(right, -1); if (state.keys.d) moveDir.addScaledVector(right, 1);
+    playerMoving = moveDir.length() > 0.1;
+    if (playerMoving) {
+      moveDir.normalize(); let nextPos = player.position.clone().addScaledVector(moveDir, speed * dt);
+      if (!isColliding(nextPos)) { player.position.copy(nextPos); } 
+      else { let nextPosX = player.position.clone(); nextPosX.x += moveDir.x * speed * dt; if (!isColliding(nextPosX)) player.position.x = nextPosX.x; let nextPosZ = player.position.clone(); nextPosZ.z += moveDir.z * speed * dt; if (!isColliding(nextPosZ)) player.position.z = nextPosZ.z; }
+      player.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+    }
+    velocityY -= 20 * dt; player.position.y += velocityY * dt;
+    if (player.position.y < 0) { player.position.y = 0; velocityY = 0; canJump = true; }
+    if (jumpPressed && canJump) { velocityY = 7; canJump = false; }
+    animateRobloxCharacter(player, playerMoving, !canJump, time);
+    player.position.x = Math.max(-140, Math.min(140, player.position.x)); player.position.z = Math.max(-140, Math.min(140, player.position.z));
+
+    if (redeemNpc.userData.giftBox) { redeemNpc.userData.giftBox.position.y = 3.5 + Math.sin(time * 2) * 0.2; redeemNpc.userData.giftBox.rotation.y += dt * 1.5; redeemNpc.rotation.y += dt * 0.5; }
+
+    state.nearbyShelf = null; let minDist = 3.0; 
+    state.shelves.forEach(shelf => { const dist = player.position.distanceTo(shelf.position); if (dist < minDist && shelf.stock < shelf.maxStock) { state.nearbyShelf = shelf; minDist = dist; } });
+    const restockBtn = document.getElementById('restock-btn');
+    if (state.nearbyShelf && state.inventoryStock > 0) { restockBtn.classList.add('active'); } else { restockBtn.classList.remove('active'); }
+
+    const distToRedeem = player.position.distanceTo(redeemNpc.position);
+    const redeemBtn = document.getElementById('redeem-btn');
+    if (distToRedeem < 3.5) { redeemBtn.classList.add('active'); } else { redeemBtn.classList.remove('active'); if (redeemDialog.classList.contains('active') && distToRedeem > 5.0) { redeemDialog.classList.remove('active'); } }
+
+    const camDist = 6;
+    let camX = player.position.x + Math.sin(state.camYaw) * camDist * Math.cos(state.camPitch);
+    let camY = player.position.y + 2 + Math.sin(state.camPitch) * camDist;
+    let camZ = player.position.z + Math.cos(state.camYaw) * camDist * Math.cos(state.camPitch);
+    camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.2); camera.lookAt(player.position.x, player.position.y + 1.5, player.position.z);
+
+    if (state.isPlacing) updateGhostPosition();
+    spawnTimer -= dt; if (spawnTimer <= 0) { spawnCustomer(); spawnTimer = 4 + Math.random() * 4; }
+    updateNPCStates(dt, time); updateCityNpcs(dt, time); updateParticles(dt); updateHUD();
+  }
+  renderer.render(scene, camera);
+}
+
+// ====================== FULLSCREEN & LANDSCAPE LOGIC ======================
+function enterFullscreenAndLandscape() {
+  const elem = document.documentElement;
+  if (elem.requestFullscreen) { elem.requestFullscreen().catch(err => console.log("Fullscreen gagal:", err)); } 
+  else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); } 
+  else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); }
+  try { if (screen.orientation && screen.orientation.lock) { screen.orientation.lock('landscape').catch(err => console.log("Lock orientation gagal:", err)); } } catch (err) { console.log("Orientation API tidak didukung"); }
+}
+
+// ====================== START GAME ======================
+document.getElementById('start-btn').addEventListener('click', () => {
+  enterFullscreenAndLandscape();
+  document.getElementById('start-screen').classList.add('hidden');
+  gameStarted = true; loadGame(); updateHUD();
+});
+
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+animate();
+</script>
+</body>
+</html>
