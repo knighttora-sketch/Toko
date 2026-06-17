@@ -28,6 +28,7 @@ html, body {
 .hud-icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
 .hud-card.money .hud-icon { background: linear-gradient(135deg, #6ee7b7, #059669); color: #022c22; }
 .hud-card.cust .hud-icon { background: linear-gradient(135deg, #a78bfa, #7c3aed); color: #2e1065; }
+.hud-card.clock .hud-icon { background: linear-gradient(135deg, #fbbf24, #d97706); color: #000; }
 .hud-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1.2px; color: #94a3b8; font-weight: 600; }
 .hud-value { font-family: 'Bricolage Grotesque', serif; font-size: 16px; font-weight: 800; line-height: 1; margin-top: 1px; }
 
@@ -81,6 +82,12 @@ html, body {
 }
 .act-btn.redeem.active { display: flex; animation: pulse 1.5s infinite; }
 
+.act-btn.sell {
+  background: rgba(239, 68, 68, 0.9); border-color: #ef4444; color: #fff; 
+  display: none; 
+}
+.act-btn.sell.active { display: flex; animation: pulse 1.5s infinite; }
+
 @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
 #build-menu-btn {
@@ -100,7 +107,7 @@ html, body {
   display: flex; align-items: center; gap: 8px; color: #fff;
 }
 #reset-btn {
-  position: fixed; top: 60px; right: 15px; z-index: 50; background: rgba(239, 68, 68, 0.85);
+  position: fixed; top: 60px; right: 15px; z-index: 50; background: rgba(100, 100, 100, 0.85);
   padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); font-weight: 700; font-size: 13px;
   display: flex; align-items: center; gap: 8px; color: #fff;
 }
@@ -230,6 +237,13 @@ html, body {
       <div class="hud-value" id="hud-money">$1,000</div>
     </div>
   </div>
+  <div class="hud-card clock">
+    <div class="hud-icon"><i class="fa-solid fa-clock"></i></div>
+    <div>
+      <div class="hud-label">Waktu</div>
+      <div class="hud-value" id="hud-clock">08:00</div>
+    </div>
+  </div>
   <div class="hud-card cust">
     <div class="hud-icon"><i class="fa-solid fa-users"></i></div>
     <div>
@@ -256,6 +270,7 @@ html, body {
 
 <div id="action-buttons">
   <button class="act-btn" id="jump-btn"><i class="fa-solid fa-arrow-up"></i></button>
+  <button class="act-btn sell" id="sell-btn"><i class="fa-solid fa-dollar-sign"></i></button>
   <button class="act-btn restock" id="restock-btn">RESTOCK</button>
   <button class="act-btn redeem" id="redeem-btn"><i class="fa-solid fa-gift"></i></button>
 </div>
@@ -312,7 +327,7 @@ html, body {
 
 <div class="overlay" id="start-screen">
   <h1>CITY RETAIL TYCOON</h1>
-  <p>Game untuk mendapatkan akun deezer/netflx cookies.</p>
+  <p>Tambah Fitur Jual Item, Cat Dinding, & Lantai Motif! Pilih Kualitas Grafik sesuai HP-mu. Jalankan game, masuk mode Layar Penuh (Fullscreen) & Horizontal (Landscape).</p>
   <button class="start-btn" id="start-btn">Mulai Main</button>
   <button class="settings-btn" id="open-settings-btn"><i class="fa-solid fa-gear"></i> Pengaturan Grafik</button>
 </div>
@@ -342,11 +357,10 @@ html, body {
   </div>
 </div>
 
-<!-- 1. Load Firebase Non-Module (Compat) - Aman dari blokir GitHub Pages -->
+<!-- Firebase Compat (Aman dari blokir GitHub Pages) -->
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 
-<!-- 2. Load Three.js via importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -368,7 +382,6 @@ const firebaseConfig = {
   messagingSenderId: "1010150322376",
   appId: "1:1010150322376:web:625ab284498f3e2bea75fd"
 };
-// Inisialisasi Firebase pakai firebase global (Compat)
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -407,7 +420,7 @@ const SAVE_KEY = 'cityRetailTycoonSaveData';
 const SETTINGS_KEY = 'cityRetailTycoonSettings';
 
 function saveGame() {
-  const data = { money: state.money, inventoryStock: state.inventoryStock, playerPos: { x: player.position.x, y: player.position.y, z: player.position.z }, playerRot: player.rotation.y, camYaw: state.camYaw, buildables: state.buildables.map(b => ({ type: b.type, pos: { x: b.position.x, y: b.position.y, z: b.position.z }, rotY: b.mesh.rotation.y, stock: b.stock || 0, maxStock: b.maxStock || 0 })) };
+  const data = { money: state.money, inventoryStock: state.inventoryStock, playerPos: { x: player.position.x, y: player.position.y, z: player.position.z }, playerRot: player.rotation.y, camYaw: state.camYaw, buildables: state.buildables.map(b => ({ type: b.type, pos: { x: b.position.x, y: b.position.y, z: b.position.z }, rotY: b.mesh.rotation.y, stock: b.stock || 0, maxStock: b.maxStock || 0 })), wallColor: wallMat.color.getHex() };
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
 function loadGame() {
@@ -416,13 +429,15 @@ function loadGame() {
     const data = JSON.parse(savedData);
     state.money = data.money; state.inventoryStock = data.inventoryStock;
     player.position.set(data.playerPos.x, data.playerPos.y, data.playerPos.z); player.rotation.y = data.playerRot; state.camYaw = data.camYaw;
+    if(data.wallColor) wallMat.color.setHex(data.wallColor);
     data.buildables.forEach(b => {
       const meshes = createItem(b.type, false); const group = new THREE.Group();
       meshes.forEach(m => group.add(m)); group.position.set(b.pos.x, b.pos.y, b.pos.z); group.rotation.y = b.rotY; scene.add(group);
       const obj = { mesh: group, position: group.position.clone(), type: b.type };
       if (b.type === 'shelf') { obj.stock = b.stock; obj.maxStock = b.maxStock; state.shelves.push(obj); updateShelfVisual(obj); } 
       else if (b.type === 'register') { obj.queue = []; state.registers.push(obj); } else state.decor.push(obj);
-      state.buildables.push(obj); state.colliders.push(new THREE.Box3().setFromObject(group));
+      state.buildables.push(obj); 
+      if(b.type !== 'floor_tile') state.colliders.push(new THREE.Box3().setFromObject(group));
     }); showNotif('Progress berhasil dimuat!', 'good');
   }
 }
@@ -430,7 +445,9 @@ function resetGame() { localStorage.removeItem(SAVE_KEY); location.reload(); }
 
 // ====================== GAME STATE ======================
 const state = {
-  money: 1000, isPlacing: false, selectedItem: null, shelves: [], registers: [], decor: [], customers: [], particles: [], buildables: [], cityNpcs: [], camYaw: Math.PI, camPitch: 0.3, keys: { w: false, a: false, s: false, d: false }, nearbyShelf: null, nearRedeemNpc: false, inventoryStock: 0, colliders: [],
+  money: 1000, isPlacing: false, selectedItem: null, shelves: [], registers: [], decor: [], customers: [], particles: [], buildables: [], cityNpcs: [], camYaw: Math.PI, camPitch: 0.3, keys: { w: false, a: false, s: false, d: false }, nearbyShelf: null, nearRedeemNpc: false, nearbySellable: null, inventoryStock: 0, colliders: [],
+  gameTime: 8.0,
+  buildingWindows: [], 
 };
 
 const canvas = document.getElementById('canvas');
@@ -459,18 +476,18 @@ function applyQualitySettings(quality) {
   if (quality === 'low') {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 0.75));
     renderer.shadowMap.enabled = false;
-    scene.fog = new THREE.Fog(0x87ceeb, 40, 120);
+    scene.fog = new THREE.Fog(scene.background, 40, 120);
     ambient.intensity = 1.0; sunLight.intensity = 0.8;
   } else if (quality === 'medium') {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
     renderer.shadowMap.enabled = false;
-    scene.fog = new THREE.Fog(0x87ceeb, 60, 250);
+    scene.fog = new THREE.Fog(scene.background, 60, 250);
     ambient.intensity = 0.9; sunLight.intensity = 0.9;
   } else if (quality === 'high') {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    scene.fog = new THREE.Fog(0x87ceeb, 80, 300);
+    scene.fog = new THREE.Fog(scene.background, 80, 300);
     ambient.intensity = 0.8; sunLight.intensity = 1.0;
   }
 }
@@ -506,11 +523,71 @@ for(let z = -CITY_RADIUS; z <= CITY_RADIUS; z += STEP) {
   hRoad.rotation.x = -Math.PI / 2; hRoad.position.set(0, 0.01, z); hRoad.receiveShadow = true; scene.add(hRoad);
 }
 
+// --- LAMPU JALAN (STREET LAMPS) ---
+const matLampPole = new THREE.MeshLambertMaterial({ color: 0x222222 });
+const matLampHead = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0xffaa00, emissiveIntensity: 0 });
+state.buildingWindows.push(matLampHead);
+
+const lampGlowCanvas = document.createElement('canvas');
+lampGlowCanvas.width = 64; lampGlowCanvas.height = 64;
+const lampCtx = lampGlowCanvas.getContext('2d');
+const lampGradient = lampCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+lampGradient.addColorStop(0, 'rgba(255,255,200,1)');
+lampGradient.addColorStop(0.2, 'rgba(255,255,100,0.8)');
+lampGradient.addColorStop(0.4, 'rgba(255,200,50,0.4)');
+lampGradient.addColorStop(1, 'rgba(255,150,0,0)');
+lampCtx.fillStyle = lampGradient;
+lampCtx.fillRect(0, 0, 64, 64);
+const lampGlowTexture = new THREE.CanvasTexture(lampGlowCanvas);
+const matLampGlow = new THREE.SpriteMaterial({ map: lampGlowTexture, color: 0xffaa00, blending: THREE.AdditiveBlending, transparent: true, opacity: 0, depthWrite: false });
+state.buildingWindows.push({ material: matLampGlow, isSprite: true });
+
+function createStreetLamp(x, z) {
+  const group = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 6, 6), matLampPole);
+  pole.position.y = 3; group.add(pole);
+  const top = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.5, 4), matLampPole);
+  top.position.y = 6.2; group.add(top);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), matLampHead);
+  head.position.y = 6.0; group.add(head);
+  const glow = new THREE.Sprite(matLampGlow);
+  glow.scale.set(3, 3, 1); glow.position.y = 6.0; group.add(glow);
+  group.position.set(x, 0, z); scene.add(group);
+}
+
+for(let x = -CITY_RADIUS; x <= CITY_RADIUS; x += STEP) {
+  if (x !== 0) { createStreetLamp(x + 8, ROAD_WIDTH/2 + 1); createStreetLamp(x - 8, -ROAD_WIDTH/2 - 1); }
+}
+for(let z = -CITY_RADIUS; z <= CITY_RADIUS; z += STEP) {
+  if (z !== 0 && z !== -50) { createStreetLamp(ROAD_WIDTH/2 + 1, z + 8); createStreetLamp(-ROAD_WIDTH/2 - 1, z - 8); }
+}
+createStreetLamp(-10, -13); createStreetLamp(10, -13);
+
+// --- TEXTURE JENDELA GEDUNG (EMISSIVE) ---
+const windowTextures = [];
+for(let i=0; i<3; i++) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,32,32);
+  ctx.fillStyle = '#ffdd66';
+  for(let y=2; y<32; y+=6) { for(let x=2; x<32; x+=6) { if(Math.random() > 0.3) ctx.fillRect(x, y, 4, 4); } }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  windowTextures.push(tex);
+}
+
 function createBuilding(x, z, w, d, h, color) {
-  const bldg = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+  const tex = windowTextures[Math.floor(Math.random()*3)].clone();
+  tex.needsUpdate = true; tex.repeat.set(Math.max(1, Math.floor(w/4)), Math.max(1, Math.floor(h/4)));
+  const mat = new THREE.MeshLambertMaterial({ color: color });
+  mat.emissive = new THREE.Color(0xffaa00); mat.emissiveMap = tex; mat.emissiveIntensity = 0;
+  state.buildingWindows.push(mat);
+  const bldg = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   bldg.position.set(x, h/2, z); bldg.castShadow = true; bldg.receiveShadow = true; scene.add(bldg);
   state.colliders.push(new THREE.Box3().setFromObject(bldg));
 }
+
 function createPark(x, z, size, forceFountain = false) {
   const parkGround = new THREE.Mesh(new THREE.BoxGeometry(size, 0.1, size), matPark);
   parkGround.position.set(x, 0.05, z); parkGround.receiveShadow = true; scene.add(parkGround);
@@ -551,6 +628,7 @@ sidewalk.position.set(0, 0.1, -17); scene.add(sidewalk);
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(STORE_W, STORE_D), new THREE.MeshLambertMaterial({ color: 0xcccccc }));
 floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0.1, 0); scene.add(floor);
 
+// Wall Material ini yang akan diubah warnanya jika beli Cat Dinding
 const wallMat = new THREE.MeshLambertMaterial({ color: 0xf0f0f0, side: THREE.DoubleSide });
 const backWall = new THREE.Mesh(new THREE.BoxGeometry(STORE_W, STORE_H, 0.3), wallMat); backWall.position.set(0, STORE_H/2, STORE_D/2); scene.add(backWall);
 const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, STORE_H, STORE_D), wallMat); leftWall.position.set(-STORE_W/2, STORE_H/2, 0); scene.add(leftWall);
@@ -558,14 +636,40 @@ const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, STORE_H, STORE_D), w
 const frontWallL = new THREE.Mesh(new THREE.BoxGeometry(7, STORE_H, 0.3), wallMat); frontWallL.position.set(-8.5, STORE_H/2, -STORE_D/2); scene.add(frontWallL);
 const frontWallR = new THREE.Mesh(new THREE.BoxGeometry(7, STORE_H, 0.3), wallMat); frontWallR.position.set(8.5, STORE_H/2, -STORE_D/2); scene.add(frontWallR);
 
-const glassMat = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.3 });
+const roof = new THREE.Mesh(
+  new THREE.BoxGeometry(STORE_W, 0.3, STORE_D),
+  new THREE.MeshLambertMaterial({ color: 0xaaaaaa })
+);
+roof.position.set(0, STORE_H, 0); scene.add(roof);
+
+const glassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, emissive: 0xffffff, emissiveIntensity: 0 });
+state.buildingWindows.push(glassMat);
+
 const glassDoor = new THREE.Mesh(new THREE.BoxGeometry(10, 9, 0.1), glassMat); glassDoor.position.set(0, 4.5, -STORE_D/2); scene.add(glassDoor);
+const sideGlassL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 4, 10), glassMat); sideGlassL.position.set(-STORE_W/2, 4, -5); scene.add(sideGlassL);
+const sideGlassR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 4, 10), glassMat); sideGlassR.position.set(STORE_W/2, 4, -5); scene.add(sideGlassR);
 
 const signBg = new THREE.Mesh(new THREE.BoxGeometry(10, 1.5, 0.2), new THREE.MeshBasicMaterial({ color: 0xe50914 })); signBg.position.set(0, 9.5, -STORE_D/2 - 0.2); scene.add(signBg);
 
 state.colliders.push(new THREE.Box3().setFromObject(backWall)); state.colliders.push(new THREE.Box3().setFromObject(leftWall));
 state.colliders.push(new THREE.Box3().setFromObject(rightWall)); state.colliders.push(new THREE.Box3().setFromObject(frontWallL));
 state.colliders.push(new THREE.Box3().setFromObject(frontWallR));
+
+// --- LAMPU PLAFON DALAM TOKO (TERANG 24 JAM) ---
+const matCeilingLamp = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffaa, emissiveIntensity: 1.0 });
+for(let lx=-8; lx<=8; lx+=8) {
+  for(let lz=-8; lz<=8; lz+=8) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 0.5), matCeilingLamp);
+    lamp.position.set(lx, STORE_H - 0.2, lz); scene.add(lamp);
+  }
+}
+
+const storeLight = new THREE.PointLight(0xffffff, 1.0, 50, 1.5);
+storeLight.position.set(0, STORE_H - 2, 0); scene.add(storeLight);
+
+const storeFrontLight = new THREE.SpotLight(0xffeecc, 0, 30, Math.PI / 4, 0.5, 1.5);
+storeFrontLight.position.set(0, 8, -10); storeFrontLight.target.position.set(0, 0, -20);
+scene.add(storeFrontLight); scene.add(storeFrontLight.target);
 
 // ====================== CHARACTERS WITH FACES & HAIR ======================
 const hairColors = [0x1a1a1a, 0x4a2818, 0x8b4513, 0xd4a373, 0xfcd34d, 0xa855f7, 0xec4899];
@@ -581,18 +685,14 @@ function createRobloxCharacter(shirtColor, pantsColor, skinColor, hairStyle = 'c
   parts.torso = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.5), matShirt); parts.torso.position.y = 1.5; group.add(parts.torso);
   parts.head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), matSkin); parts.head.position.y = 2.4; group.add(parts.head);
   
-  // Mata
   const lEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.05), matBlack); lEye.position.set(-0.18, 2.45, 0.41); group.add(lEye);
   const rEye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.15, 0.05), matBlack); rEye.position.set(0.18, 2.45, 0.41); group.add(rEye);
-  // Alis Mata
   const lBrow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 0.05), matBlack); lBrow.position.set(-0.18, 2.6, 0.41); group.add(lBrow);
   const rBrow = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 0.05), matBlack); rBrow.position.set(0.18, 2.6, 0.41); group.add(rBrow);
-  // Mulut Senyum
   const smile = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.05), matBlack); smile.position.set(0, 2.2, 0.41); group.add(smile);
   const smileCorner1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), matRed); smileCorner1.position.set(-0.2, 2.2, 0.41); group.add(smileCorner1);
   const smileCorner2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.05), matRed); smileCorner2.position.set(0.2, 2.2, 0.41); group.add(smileCorner2);
 
-  // Rambut
   const hairColor = hairColors[Math.floor(Math.random() * hairColors.length)];
   const matHair = new THREE.MeshLambertMaterial({ color: hairColor });
   if (hairStyle === 'classic' || hairStyle === 'spiky') {
@@ -651,7 +751,16 @@ giftBoxGroup.add(giftBase); giftBoxGroup.add(giftLid); giftBoxGroup.position.y =
 
 // ====================== GHOST & BUILDING ======================
 const ghostGroup = new THREE.Group(); ghostGroup.visible = false; scene.add(ghostGroup);
-const buildCatalog = [ { id: 'shelf', name: 'Rak Besar', price: 150, icon: 'fa-boxes-stacked' }, { id: 'register', name: 'Kasir', price: 250, icon: 'fa-cash-register' }, { id: 'plant', name: 'Tanaman', price: 80, icon: 'fa-seedling' } ];
+const buildCatalog = [
+  { id: 'shelf', name: 'Rak Besar', price: 150, icon: 'fa-boxes-stacked' },
+  { id: 'register', name: 'Kasir', price: 250, icon: 'fa-cash-register' },
+  { id: 'plant', name: 'Tanaman', price: 80, icon: 'fa-seedling' },
+  { id: 'wall_lamp', name: 'Lampu Dinding', price: 100, icon: 'fa-lightbulb' },
+  { id: 'floor_lamp', name: 'Lampu Lantai', price: 120, icon: 'fa-lamp' },
+  { id: 'ceiling_lamp', name: 'Lampu Gantung', price: 150, icon: 'fa-lightbulb' },
+  { id: 'floor_tile', name: 'Lantai Motif', price: 50, icon: 'fa-square' },
+  { id: 'wall_paint', name: 'Cat Dinding', price: 100, icon: 'fa-paint-roller' }
+];
 function renderBuildMenu() {
   const grid = document.getElementById('build-grid'); grid.innerHTML = '';
   buildCatalog.forEach(item => {
@@ -668,12 +777,25 @@ function placeItem() {
   const itemData = buildCatalog.find(i => i.id === state.selectedItem); if (!itemData || state.money < itemData.price) return;
   const pos = ghostGroup.position.clone();
   if (Math.abs(pos.x) > 11 || Math.abs(pos.z) > 11) return showNotif('Bangun di dalam toko!', 'bad');
+
+  // Logic khusus untuk Cat Dinding (Tidak membuat objek fisik)
+  if (itemData.id === 'wall_paint') {
+    state.money -= itemData.price;
+    const paintColors = [0xffadad, 0xffd6a5, 0xfdffb6, 0xcaffbf, 0x9bf6ff, 0xa0c4ff, 0xbdb2ff, 0xffc6ff, 0xf0f0f0];
+    wallMat.color.setHex(paintColors[Math.floor(Math.random()*paintColors.length)]);
+    showNotif('Warna dinding diperbarui!', 'good');
+    updateHUD(); cancelBuild(); saveGame();
+    return;
+  }
+
   if (state.buildables.some(b => b.position.distanceTo(pos) < 2.5)) return showNotif('Terlalu dekat dengan item lain!', 'bad');
   state.money -= itemData.price; const meshes = createItem(itemData.id, false); const group = new THREE.Group();
   meshes.forEach(m => group.add(m)); group.position.copy(pos); group.rotation.y = ghostGroup.rotation.y; scene.add(group);
   const obj = { mesh: group, position: pos, type: itemData.id };
   if (itemData.id === 'shelf') { obj.stock = 20; obj.maxStock = 20; state.shelves.push(obj); } else if (itemData.id === 'register') { obj.queue = []; state.registers.push(obj); } else state.decor.push(obj);
-  state.buildables.push(obj); state.colliders.push(new THREE.Box3().setFromObject(group)); updateHUD(); cancelBuild(); saveGame();
+  state.buildables.push(obj); 
+  if(itemData.id !== 'floor_tile') state.colliders.push(new THREE.Box3().setFromObject(group)); // Lantai tidak tabrakan
+  updateHUD(); cancelBuild(); saveGame();
 }
 function cancelBuild() { state.isPlacing = false; state.selectedItem = null; ghostGroup.visible = false; document.getElementById('build-controls').classList.remove('active'); }
 
@@ -699,6 +821,44 @@ function createItem(type, isGhost = false) {
   } else if (type === 'plant') {
     const g = new THREE.Group(); const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.3, 0.6, 6), mat(0x8b4513)); pot.position.y = 0.3; g.add(pot);
     const leaves = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8, 0), mat(0x2d8a3e)); leaves.position.y = 1.2; g.add(leaves); meshes.push(g);
+  } else if (type === 'wall_lamp') {
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 0.2), mat(0x222222)); base.position.y = 1.5; g.add(base);
+    const matBulb = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffaa00, emissiveIntensity: 1.5 });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), matBulb); bulb.position.set(0, 1.7, 0.15); g.add(bulb);
+    if (!isGhost) { const light = new THREE.PointLight(0xffaa00, 1.0, 8, 1.5); light.position.set(0, 1.7, 0.3); g.add(light); }
+    meshes.push(g);
+  } else if (type === 'floor_lamp') {
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2, 6), mat(0x222222)); pole.position.y = 1; g.add(pole);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.1, 8), mat(0x222222)); base.position.y = 0.05; g.add(base);
+    const matShade = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffaa00, emissiveIntensity: 1.5 });
+    const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.4, 8), matShade); shade.position.y = 2.1; g.add(shade);
+    if (!isGhost) { const light = new THREE.PointLight(0xffaa00, 1.2, 10, 1.5); light.position.y = 2.0; g.add(light); }
+    meshes.push(g);
+  } else if (type === 'ceiling_lamp') {
+    const g = new THREE.Group();
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1, 4), mat(0x111111)); cord.position.y = 2.5; g.add(cord);
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.4, 8), mat(0x222222)); shade.position.y = 2.0; g.add(shade);
+    const matBulb = new THREE.MeshStandardMaterial({ color: 0xffffaa, emissive: 0xffaa00, emissiveIntensity: 1.5 });
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), matBulb); bulb.position.y = 1.8; g.add(bulb);
+    if (!isGhost) { const light = new THREE.PointLight(0xffaa00, 1.5, 12, 1.5); light.position.y = 1.8; g.add(light); }
+    meshes.push(g);
+  } else if (type === 'floor_tile') {
+    const g = new THREE.Group();
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = 64; tileCanvas.height = 64;
+    const tCtx = tileCanvas.getContext('2d');
+    tCtx.fillStyle = '#8b4513'; tCtx.fillRect(0,0,64,64);
+    tCtx.fillStyle = '#d2b48c'; 
+    for(let y=0; y<64; y+=32) { for(let x=0; x<64; x+=32) { if((x+y)/32 % 2 === 0) tCtx.fillRect(x, y, 32, 32); } }
+    const tileTex = new THREE.CanvasTexture(tileCanvas);
+    tileTex.wrapS = THREE.RepeatWrapping; tileTex.wrapT = THREE.RepeatWrapping; tileTex.repeat.set(2, 2);
+    const matTile = new THREE.MeshLambertMaterial({ map: tileTex });
+    if (isGhost) { matTile.transparent = true; matTile.opacity = 0.6; }
+    const tile = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), matTile);
+    tile.rotation.x = -Math.PI / 2; tile.position.y = 0.02;
+    g.add(tile); meshes.push(g);
   }
   return meshes;
 }
@@ -741,7 +901,7 @@ function updateNPCStates(dt, time) {
     if (c.arrow) c.arrow.position.y = 3.5 + Math.sin(time * 2) * 0.2;
     if (c.state === 'shopping') { if (c.stateTime > 4) { c.basket.visible = true; const r = state.registers.find(rg => rg.queue.length < 3); if (r) { r.queue.push(c); c.state = 'walk_to_register'; c.targetRegister = r; updateQueue(r); } else { c.state = 'leaving'; c.targetPos = ENTRANCE.clone(); } } } 
     else if (c.state === 'queuing') { if (c.targetRegister && c.targetRegister.queue[0] === c) { c.state = 'paying'; c.stateTime = 0; } } 
-    else if (c.state === 'paying') { if (c.stateTime > 2) { state.money += 45; showNotif('+$45 Diterima', 'good'); spawnMoneyParticle(c.mesh.position); if (c.targetRegister) { const idx = c.targetRegister.queue.indexOf(c); if(idx>=0) c.targetRegister.queue.splice(idx, 1); updateQueue(c.targetRegister); } c.state = 'leaving'; c.targetPos = ENTRANCE.clone(); saveGame(); } }
+    else if (c.state === 'paying') { if (c.stateTime > 2) { state.money += 100; showNotif('+$100 Diterima', 'good'); spawnMoneyParticle(c.mesh.position); if (c.targetRegister) { const idx = c.targetRegister.queue.indexOf(c); if(idx>=0) c.targetRegister.queue.splice(idx, 1); updateQueue(c.targetRegister); } c.state = 'leaving'; c.targetPos = ENTRANCE.clone(); saveGame(); } }
     updateNPC(c, dt, time);
   }); state.customers = state.customers.filter(c => !c.toRemove);
 }
@@ -771,6 +931,32 @@ camZone.addEventListener('touchmove', e => { e.preventDefault(); if (camActive) 
 camZone.addEventListener('touchend', e => { e.preventDefault(); for (let i=0; i<e.changedTouches.length; i++) { if (e.changedTouches[i].identifier === camId) { camId = null; camActive = false; } } }, { passive: false });
 
 document.getElementById('restock-btn').addEventListener('click', () => { if (state.nearbyShelf && state.inventoryStock > 0) { const shelf = state.nearbyShelf; const needed = shelf.maxStock - shelf.stock; const toFill = Math.min(needed, state.inventoryStock); shelf.stock += toFill; state.inventoryStock -= toFill; updateShelfVisual(shelf); showNotif(`Rak diisi ${toFill} stok`, 'good'); updateHUD(); saveGame(); } else if (state.inventoryStock <= 0) { showNotif('Stok gudang kosong! Beli di toko', 'bad'); } });
+
+// --- EVENT JUAL ITEM ---
+document.getElementById('sell-btn').addEventListener('click', () => {
+  if (state.nearbySellable) {
+    const item = state.nearbySellable;
+    const itemData = buildCatalog.find(i => i.id === item.type);
+    const refund = Math.floor(itemData.price * 0.5);
+    state.money += refund;
+    showNotif(`Item dijual! +$${refund}`, 'good');
+    
+    scene.remove(item.mesh);
+    if (item.type === 'shelf') state.shelves = state.shelves.filter(s => s !== item);
+    else if (item.type === 'register') state.registers = state.registers.filter(r => r !== item);
+    else state.decor = state.decor.filter(d => d !== item);
+    state.buildables = state.buildables.filter(b => b !== item);
+    
+    state.colliders = state.colliders.filter(c => {
+      const center = new THREE.Vector3();
+      c.getCenter(center);
+      return center.distanceTo(item.position) > 0.1;
+    });
+
+    state.nearbySellable = null;
+    updateHUD(); saveGame();
+  }
+});
 
 const redeemDialog = document.getElementById('redeem-dialog'); const redeemOptions = document.getElementById('redeem-options'); const redeemResult = document.getElementById('redeem-result'); const codeBox = document.getElementById('code-box');
 document.getElementById('redeem-btn').addEventListener('click', () => { redeemDialog.classList.add('active'); resetRedeemDialog(); });
@@ -832,12 +1018,63 @@ document.getElementById('save-settings-btn').addEventListener('click', () => {
   showNotif('Grafik diatur ke ' + tempQuality.toUpperCase(), 'good');
 });
 
+// ====================== DAY & NIGHT CYCLE LOGIC ======================
+const colorDay = new THREE.Color(0x87ceeb);
+const colorNight = new THREE.Color(0x0a0a20);
+const colorDusk = new THREE.Color(0xff7e5f);
+
+function updateDayNightCycle(dt) {
+  state.gameTime += dt * 0.2;
+  if (state.gameTime >= 24) state.gameTime -= 24;
+  
+  const hours = Math.floor(state.gameTime);
+  const minutes = Math.floor((state.gameTime - hours) * 60);
+  document.getElementById('hud-clock').textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+  const sunAngle = (state.gameTime / 24) * Math.PI * 2 - Math.PI / 2;
+  const sunHeight = Math.sin(sunAngle);
+  
+  sunLight.position.set(Math.cos(sunAngle) * 50, Math.max(5, sunHeight * 80), 30);
+
+  if (sunHeight > 0.2) {
+    scene.background.lerp(colorDay, 0.05); scene.fog.color.lerp(colorDay, 0.05);
+    ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, 0.9, 0.05);
+    sunLight.intensity = THREE.MathUtils.lerp(sunLight.intensity, 0.9, 0.05);
+    sunLight.color.lerp(new THREE.Color(0xffffff), 0.05);
+    state.buildingWindows.forEach(m => { if (m.isSprite) m.material.opacity = THREE.MathUtils.lerp(m.material.opacity, 0, 0.05); else m.emissiveIntensity = THREE.MathUtils.lerp(m.emissiveIntensity, 0, 0.05); });
+    storeLight.intensity = THREE.MathUtils.lerp(storeLight.intensity, 1.0, 0.05);
+    matCeilingLamp.emissiveIntensity = THREE.MathUtils.lerp(matCeilingLamp.emissiveIntensity, 0.5, 0.05);
+    storeFrontLight.intensity = THREE.MathUtils.lerp(storeFrontLight.intensity, 0, 0.05);
+  } else if (sunHeight < -0.2) {
+    scene.background.lerp(colorNight, 0.05); scene.fog.color.lerp(colorNight, 0.05);
+    ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, 0.2, 0.05);
+    sunLight.intensity = THREE.MathUtils.lerp(sunLight.intensity, 0.1, 0.05);
+    sunLight.color.lerp(new THREE.Color(0x4a6fa5), 0.05);
+    state.buildingWindows.forEach(m => { if (m.isSprite) m.material.opacity = THREE.MathUtils.lerp(m.material.opacity, 1, 0.05); else m.emissiveIntensity = THREE.MathUtils.lerp(m.emissiveIntensity, 2.5, 0.05); });
+    storeLight.intensity = THREE.MathUtils.lerp(storeLight.intensity, 2.5, 0.05);
+    matCeilingLamp.emissiveIntensity = THREE.MathUtils.lerp(matCeilingLamp.emissiveIntensity, 1.5, 0.05);
+    storeFrontLight.intensity = THREE.MathUtils.lerp(storeFrontLight.intensity, 3.0, 0.05);
+  } else {
+    scene.background.lerp(colorDusk, 0.05); scene.fog.color.lerp(colorDusk, 0.05);
+    ambient.intensity = THREE.MathUtils.lerp(ambient.intensity, 0.4, 0.05);
+    sunLight.intensity = THREE.MathUtils.lerp(sunLight.intensity, 0.4, 0.05);
+    sunLight.color.lerp(new THREE.Color(0xffaa55), 0.05);
+    state.buildingWindows.forEach(m => { if (m.isSprite) m.material.opacity = THREE.MathUtils.lerp(m.material.opacity, 0.5, 0.05); else m.emissiveIntensity = THREE.MathUtils.lerp(m.emissiveIntensity, 1.0, 0.05); });
+    storeLight.intensity = THREE.MathUtils.lerp(storeLight.intensity, 1.5, 0.05);
+    matCeilingLamp.emissiveIntensity = THREE.MathUtils.lerp(matCeilingLamp.emissiveIntensity, 1.0, 0.05);
+    storeFrontLight.intensity = THREE.MathUtils.lerp(storeFrontLight.intensity, 1.5, 0.05);
+  }
+}
+
 // ====================== MAIN LOOP ======================
 let lastTime = performance.now(); let gameStarted = false; let spawnTimer = 3; let velocityY = 0; let canJump = false; let playerMoving = false;
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now(); const dt = Math.min(0.05, (now - lastTime) / 1000); lastTime = now; const time = now * 0.001; 
+  
   if (gameStarted) {
+    updateDayNightCycle(dt);
+
     const speed = 8.0; const forward = new THREE.Vector3(Math.sin(state.camYaw), 0, Math.cos(state.camYaw)); const right = new THREE.Vector3(Math.cos(state.camYaw), 0, -Math.sin(state.camYaw));
     const moveDir = new THREE.Vector3();
     if (state.keys.w) moveDir.addScaledVector(forward, 1); if (state.keys.s) moveDir.addScaledVector(forward, -1); if (state.keys.a) moveDir.addScaledVector(right, -1); if (state.keys.d) moveDir.addScaledVector(right, 1);
@@ -856,10 +1093,20 @@ function animate() {
 
     if (redeemNpc.userData.giftBox) { redeemNpc.userData.giftBox.position.y = 3.5 + Math.sin(time * 2) * 0.2; redeemNpc.userData.giftBox.rotation.y += dt * 1.5; redeemNpc.rotation.y += dt * 0.5; }
 
+    // Cek Rak Terdekat (Restock)
     state.nearbyShelf = null; let minDist = 3.0; 
     state.shelves.forEach(shelf => { const dist = player.position.distanceTo(shelf.position); if (dist < minDist && shelf.stock < shelf.maxStock) { state.nearbyShelf = shelf; minDist = dist; } });
     const restockBtn = document.getElementById('restock-btn');
     if (state.nearbyShelf && state.inventoryStock > 0) { restockBtn.classList.add('active'); } else { restockBtn.classList.remove('active'); }
+
+    // Cek Item Terdekat untuk Dijual (Sell)
+    state.nearbySellable = null; let minSellDist = 3.0;
+    state.buildables.forEach(b => {
+      const dist = player.position.distanceTo(b.position);
+      if (dist < minSellDist) { state.nearbySellable = b; minSellDist = dist; }
+    });
+    const sellBtn = document.getElementById('sell-btn');
+    if (state.nearbySellable) { sellBtn.classList.add('active'); } else { sellBtn.classList.remove('active'); }
 
     const distToRedeem = player.position.distanceTo(redeemNpc.position);
     const redeemBtn = document.getElementById('redeem-btn');
